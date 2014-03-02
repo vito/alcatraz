@@ -1,6 +1,8 @@
 package alcatraz
 
 import (
+	"time"
+
 	"github.com/pivotal-cf-experimental/garden/backend"
 )
 
@@ -32,7 +34,7 @@ func (container *DockerContainer) Stop(kill bool) error {
 
 func (container *DockerContainer) Info() (backend.ContainerInfo, error) {
 	panic("TODO Info")
-	return nil, nil
+	return backend.ContainerInfo{}, nil
 }
 
 func (container *DockerContainer) CopyIn(src, dst string) error {

@@ -5,15 +5,10 @@ import (
 )
 
 type DockerBackend struct {
-	DockerNetwork string
-	DockerAddr    string
 }
 
-func New(network, addr string) *DockerBackend {
-	return &DockerBackend{
-		Network: network,
-		Addr:    addr,
-	}
+func New() *DockerBackend {
+	return &DockerBackend{}
 }
 
 func (backend *DockerBackend) Setup() error {
