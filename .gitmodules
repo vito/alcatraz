@@ -1,0 +1,3 @@
+[submodule "wsh"]
+	path = wsh
+	url = https://github.com/chenyf/wsh.git
