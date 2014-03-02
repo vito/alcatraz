@@ -1,9 +1,7 @@
-skeleton: skeleton/bin skeleton/run
+skeleton: skeleton/ssh skeleton/ssh_auth
 
-skeleton/bin: wsh/*.c
-	mkdir -p skeleton/bin
-	cd wsh && make
-	cp wsh/wsh wsh/wshd skeleton/bin
+skeleton/ssh:
+	mkdir -p skeleton/ssh
 
-skeleton/run:
-	mkdir -p skeleton/run
+skeleton/ssh_auth:
+	mkdir -p skeleton/ssh_auth

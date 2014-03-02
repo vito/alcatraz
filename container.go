@@ -1,6 +1,7 @@
 package alcatraz
 
 import (
+	"fmt"
 	"log"
 	"os/exec"
 	"path"
@@ -14,12 +15,14 @@ type DockerContainer struct {
 	id     string
 	handle string
 	path   string
+	port   uint32
 
 	runner command_runner.CommandRunner
 }
 
 func NewDockerContainer(
 	id, handle, path string,
+	port uint32,
 
 	runner command_runner.CommandRunner,
 ) *DockerContainer {
@@ -27,6 +30,7 @@ func NewDockerContainer(
 		id:     id,
 		handle: handle,
 		path:   path,
+		port:   port,
 
 		runner: runner,
 	}
@@ -57,13 +61,13 @@ func (container *DockerContainer) Info() (backend.ContainerInfo, error) {
 
 func (container *DockerContainer) CopyIn(src, dst string) error {
 	log.Println(container.id, "copying in from", src, "to", dst)
-	return container.rsync(src, "vcap@container:"+dst)
+	return container.rsync(src, "vcap@127.0.0.1:"+dst)
 }
 
 func (container *DockerContainer) CopyOut(src, dst, owner string) error {
 	log.Println(container.id, "copying out from", src, "to", dst)
 
-	err := container.rsync("vcap@container:"+src, dst)
+	err := container.rsync("vcap@127.0.0.1:"+src, dst)
 	if err != nil {
 		return err
 	}
@@ -144,13 +148,15 @@ func (container *DockerContainer) NetOut(network string, port uint32) error {
 }
 
 func (container *DockerContainer) rsync(src, dst string) error {
-	wshPath := path.Join(container.path, "bin", "wsh")
-	sockPath := path.Join(container.path, "run", "wshd.sock")
-
 	rsync := &exec.Cmd{
 		Path: "rsync",
 		Args: []string{
-			"-e", wshPath + " --socket " + sockPath + " --rsh",
+			"-e",
+			fmt.Sprintf(
+				"ssh -i %s -p %d -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null",
+				path.Join(container.path, "ssh", "id_rsa"),
+				container.port,
+			),
 			"-r",
 			"-p",
 			"--links",

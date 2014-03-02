@@ -1,7 +1,7 @@
 package alcatraz
 
 import (
-	"bytes"
+	"fmt"
 	"log"
 	"os"
 	"os/exec"
@@ -12,6 +12,7 @@ import (
 
 	"github.com/pivotal-cf-experimental/garden/backend"
 	"github.com/pivotal-cf-experimental/garden/command_runner"
+	"github.com/pivotal-cf-experimental/garden/linux_backend/port_pool"
 )
 
 type DockerBackend struct {
@@ -19,6 +20,8 @@ type DockerBackend struct {
 	depotPath    string
 
 	runner command_runner.CommandRunner
+
+	portPool *port_pool.PortPool
 
 	containerIDs <-chan string
 
@@ -45,6 +48,8 @@ func New(skeletonPath string, depotPath string, runner command_runner.CommandRun
 
 		runner: runner,
 
+		portPool: port_pool.New(51000, 10000),
+
 		containerIDs: containerIDs,
 
 		containers:      make(map[string]backend.Container),
@@ -69,34 +74,57 @@ func (backend *DockerBackend) Stop() {
 func (backend *DockerBackend) Create(spec backend.ContainerSpec) (backend.Container, error) {
 	id := <-backend.containerIDs
 
+	containerPort, err := backend.portPool.Acquire()
+	if err != nil {
+		return nil, err
+	}
+
 	containerPath := path.Join(backend.depotPath, id)
 
 	cp := &exec.Cmd{
 		Path: "cp",
-		Args: []string{"-a", backend.skeletonPath, containerPath},
+		Args: []string{"-r", backend.skeletonPath, containerPath},
 	}
 
 	if err := backend.runner.Run(cp); err != nil {
 		return nil, err
 	}
 
-	out := new(bytes.Buffer)
+	keygen := &exec.Cmd{
+		Path: "ssh-keygen",
+		Args: []string{
+			"-f", path.Join(containerPath, "ssh", "id_rsa"),
+			"-t", "rsa", "-N", "",
+		},
+	}
+
+	if err := backend.runner.Run(keygen); err != nil {
+		return nil, err
+	}
+
+	authorize := &exec.Cmd{
+		Path: "cp",
+		Args: []string{
+			path.Join(containerPath, "ssh", "id_rsa.pub"),
+			path.Join(containerPath, "ssh_auth", "authorized_keys"),
+		},
+	}
+
+	if err := backend.runner.Run(authorize); err != nil {
+		return nil, err
+	}
 
 	cmd := &exec.Cmd{
 		Path: "docker",
 
 		Args: []string{
 			"run", "-d",
-
+			"-v", path.Join(containerPath, "ssh_auth") + ":/root/.ssh:ro",
+			"-v", path.Join(containerPath, "ssh_auth") + ":/home/vcap/.ssh:ro",
+			"-p", fmt.Sprintf("%d:22", containerPort),
 			"--name", id,
-
-			// TODO: this should only be writable by privileged root
-			"-v", containerPath + ":/share",
-
 			"alcatraz",
 		},
-
-		Stdout: out,
 	}
 
 	if err := backend.runner.Run(cmd); err != nil {
@@ -114,6 +142,7 @@ func (backend *DockerBackend) Create(spec backend.ContainerSpec) (backend.Contai
 		id,
 		handle,
 		containerPath,
+		containerPort,
 		backend.runner,
 	)
 
@@ -140,7 +169,7 @@ func (backend *DockerBackend) Destroy(handle string) error {
 		return err
 	}
 
-	log.Println("Destroyed:", container.ID())
+	log.Println("destroyed:", container.ID())
 
 	return nil
 }
