@@ -63,8 +63,12 @@ func (container *DockerContainer) GraceTime() time.Duration {
 }
 
 func (container *DockerContainer) Stop(kill bool) error {
-	log.Println("TODO Stop")
-	return nil
+	stop := &exec.Cmd{
+		Path: "docker",
+		Args: []string{"stop", container.id},
+	}
+
+	return container.runner.Run(stop)
 }
 
 func (container *DockerContainer) Info() (backend.ContainerInfo, error) {
