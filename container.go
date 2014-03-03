@@ -6,11 +6,14 @@ import (
 	"log"
 	"os/exec"
 	"path"
+	"strconv"
 	"time"
 
 	"github.com/pivotal-cf-experimental/garden/backend"
 	"github.com/pivotal-cf-experimental/garden/command_runner"
 	"github.com/pivotal-cf-experimental/garden/linux_backend/process_tracker"
+
+	"github.com/vito/alcatraz/lxc_cgroups_manager"
 )
 
 type DockerContainer struct {
@@ -21,14 +24,16 @@ type DockerContainer struct {
 
 	runner command_runner.CommandRunner
 
+	cgroupsManager *lxc_cgroups_manager.LXCCgroupsManager
+
 	processTracker *process_tracker.ProcessTracker
 }
 
 func NewDockerContainer(
 	id, handle, path string,
 	port uint32,
-
 	runner command_runner.CommandRunner,
+	cgroupsManager *lxc_cgroups_manager.LXCCgroupsManager,
 ) *DockerContainer {
 	return &DockerContainer{
 		id:     id,
@@ -37,6 +42,8 @@ func NewDockerContainer(
 		port:   port,
 
 		runner: runner,
+
+		cgroupsManager: cgroupsManager,
 
 		processTracker: process_tracker.New(path, runner),
 	}
@@ -114,13 +121,37 @@ func (container *DockerContainer) CurrentDiskLimits() (backend.DiskLimits, error
 }
 
 func (container *DockerContainer) LimitMemory(limits backend.MemoryLimits) error {
-	log.Println("TODO LimitMemory")
+	limit := fmt.Sprintf("%d", limits.LimitInBytes)
+
+	// memory.memsw.limit_in_bytes must be >= memory.limit_in_bytes
+	//
+	// however, it must be set after memory.limit_in_bytes, and if we're
+	// increasing the limit, writing memory.limit_in_bytes first will fail.
+	//
+	// so, write memory.limit_in_bytes before and after
+	container.cgroupsManager.Set("memory", "memory.limit_in_bytes", limit)
+	container.cgroupsManager.Set("memory", "memory.memsw.limit_in_bytes", limit)
+
+	err := container.cgroupsManager.Set("memory", "memory.limit_in_bytes", limit)
+	if err != nil {
+		return err
+	}
+
 	return nil
 }
 
 func (container *DockerContainer) CurrentMemoryLimits() (backend.MemoryLimits, error) {
-	log.Println("TODO CurrentMemoryLimits")
-	return backend.MemoryLimits{}, nil
+	limitInBytes, err := container.cgroupsManager.Get("memory", "memory.limit_in_bytes")
+	if err != nil {
+		return backend.MemoryLimits{}, err
+	}
+
+	numericLimit, err := strconv.ParseUint(limitInBytes, 10, 0)
+	if err != nil {
+		return backend.MemoryLimits{}, err
+	}
+
+	return backend.MemoryLimits{uint64(numericLimit)}, nil
 }
 
 func (container *DockerContainer) LimitCPU(limits backend.CPULimits) error {

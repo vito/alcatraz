@@ -1,18 +1,22 @@
 package alcatraz
 
 import (
+	"bytes"
 	"fmt"
 	"log"
 	"os"
 	"os/exec"
 	"path"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/pivotal-cf-experimental/garden/backend"
 	"github.com/pivotal-cf-experimental/garden/command_runner"
 	"github.com/pivotal-cf-experimental/garden/linux_backend/port_pool"
+
+	"github.com/vito/alcatraz/lxc_cgroups_manager"
 )
 
 type DockerBackend struct {
@@ -114,6 +118,8 @@ func (backend *DockerBackend) Create(spec backend.ContainerSpec) (backend.Contai
 		return nil, err
 	}
 
+	out := new(bytes.Buffer)
+
 	cmd := &exec.Cmd{
 		Path: "docker",
 
@@ -125,6 +131,8 @@ func (backend *DockerBackend) Create(spec backend.ContainerSpec) (backend.Contai
 			"--name", id,
 			"alcatraz",
 		},
+
+		Stdout: out,
 	}
 
 	if err := backend.runner.Run(cmd); err != nil {
@@ -136,6 +144,8 @@ func (backend *DockerBackend) Create(spec backend.ContainerSpec) (backend.Contai
 		handle = spec.Handle
 	}
 
+	lxcID := strings.TrimRight(out.String(), "\n")
+
 	log.Println("created:", handle)
 
 	container := NewDockerContainer(
@@ -144,6 +154,7 @@ func (backend *DockerBackend) Create(spec backend.ContainerSpec) (backend.Contai
 		containerPath,
 		containerPort,
 		backend.runner,
+		lxc_cgroups_manager.New(lxcID, backend.runner),
 	)
 
 	backend.containersMutex.Lock()
