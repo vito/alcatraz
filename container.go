@@ -1,6 +1,7 @@
 package alcatraz
 
 import (
+	"bytes"
 	"fmt"
 	"log"
 	"os/exec"
@@ -9,6 +10,7 @@ import (
 
 	"github.com/pivotal-cf-experimental/garden/backend"
 	"github.com/pivotal-cf-experimental/garden/command_runner"
+	"github.com/pivotal-cf-experimental/garden/linux_backend/process_tracker"
 )
 
 type DockerContainer struct {
@@ -18,6 +20,8 @@ type DockerContainer struct {
 	port   uint32
 
 	runner command_runner.CommandRunner
+
+	processTracker *process_tracker.ProcessTracker
 }
 
 func NewDockerContainer(
@@ -33,6 +37,8 @@ func NewDockerContainer(
 		port:   port,
 
 		runner: runner,
+
+		processTracker: process_tracker.New(path, runner),
 	}
 }
 
@@ -128,13 +134,33 @@ func (container *DockerContainer) CurrentCPULimits() (backend.CPULimits, error) 
 }
 
 func (container *DockerContainer) Run(spec backend.ProcessSpec) (uint32, <-chan backend.ProcessStream, error) {
-	log.Println("TODO Run")
-	return 0, nil, nil
+	log.Println(container.id, "running process:", spec.Script)
+
+	user := "vcap"
+	if spec.Privileged {
+		user = "root"
+	}
+
+	wsh := &exec.Cmd{
+		Path: "ssh",
+		Args: []string{
+			"-q",
+			"-i", path.Join(container.path, "ssh", "id_rsa"),
+			"-p", fmt.Sprintf("%d", container.port),
+			"-o", "StrictHostKeyChecking=no",
+			"-o", "UserKnownHostsFile=/dev/null",
+			user + "@127.0.0.1",
+			"/bin/bash",
+		},
+		Stdin: bytes.NewBufferString(spec.Script),
+	}
+
+	return container.processTracker.Run(wsh)
 }
 
 func (container *DockerContainer) Attach(processID uint32) (<-chan backend.ProcessStream, error) {
-	log.Println("TODO Attach")
-	return nil, nil
+	log.Println(container.id, "attaching to process", processID)
+	return container.processTracker.Attach(processID)
 }
 
 func (container *DockerContainer) NetIn(hostPort uint32, containerPort uint32) (uint32, uint32, error) {
