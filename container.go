@@ -125,6 +125,8 @@ func (container *DockerContainer) CurrentDiskLimits() (backend.DiskLimits, error
 }
 
 func (container *DockerContainer) LimitMemory(limits backend.MemoryLimits) error {
+	log.Println(container.id, "limiting memory to", limits.LimitInBytes, "bytes")
+
 	limit := fmt.Sprintf("%d", limits.LimitInBytes)
 
 	// memory.memsw.limit_in_bytes must be >= memory.limit_in_bytes
@@ -159,13 +161,30 @@ func (container *DockerContainer) CurrentMemoryLimits() (backend.MemoryLimits, e
 }
 
 func (container *DockerContainer) LimitCPU(limits backend.CPULimits) error {
-	log.Println("TODO LimitCPU")
+	log.Println(container.id, "limiting CPU to", limits.LimitInShares, "shares")
+
+	limit := fmt.Sprintf("%d", limits.LimitInShares)
+
+	err := container.cgroupsManager.Set("cpu", "cpu.shares", limit)
+	if err != nil {
+		return err
+	}
+
 	return nil
 }
 
 func (container *DockerContainer) CurrentCPULimits() (backend.CPULimits, error) {
-	log.Println("TODO CurrentCPULimits")
-	return backend.CPULimits{}, nil
+	actualLimitInShares, err := container.cgroupsManager.Get("cpu", "cpu.shares")
+	if err != nil {
+		return backend.CPULimits{}, err
+	}
+
+	numericLimit, err := strconv.ParseUint(actualLimitInShares, 10, 0)
+	if err != nil {
+		return backend.CPULimits{}, err
+	}
+
+	return backend.CPULimits{uint64(numericLimit)}, nil
 }
 
 func (container *DockerContainer) Run(spec backend.ProcessSpec) (uint32, <-chan backend.ProcessStream, error) {
